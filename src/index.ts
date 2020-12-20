@@ -41,7 +41,10 @@ function mapbox2harp(
         if (vectorTileSources.includes((layer as any).source)) {
             return;
         }
-        styles.push(mbLayer2harpStyle(layer as MapboxVectorTileLayer));
+        const style = mbLayer2harpStyle(layer as MapboxVectorTileLayer);
+        if (style !== null) {
+            styles.push(style);
+        }
     });
 
     const harpStyle: Theme = {
@@ -51,79 +54,91 @@ function mapbox2harp(
     return harpStyle;
 }
 
-function mbLayer2harpStyle(mapboxLayer: MapboxVectorTileLayer): Style {
+function mbLayer2harpStyle(mapboxLayer: MapboxVectorTileLayer): Style | null {
     const baseStyle = {
         id: mapboxLayer.id,
         layer: mapboxLayer['source-layer'],
         when: translateMapboxExpr(mapboxLayer.filter),
+        color: getHarpColorBy(mapboxLayer) as string,
     };
+    if (baseStyle.color === null) {
+        return null;
+    }
     switch (mapboxLayer.type) {
         case 'symbol':
             return {
                 ...baseStyle,
                 technique: 'circles',
-                color: getHarpColorBy(mapboxLayer) as string,
             };
         case 'circle':
             return {
                 ...baseStyle,
                 technique: 'circles',
-                color: getHarpColorBy(mapboxLayer) as string,
             };
         case 'line':
             return {
                 ...baseStyle,
                 technique: 'solid-line',
-                color: getHarpColorBy(mapboxLayer) as string,
                 ...getLineStyleAttributes(mapboxLayer as mapboxgl.LineLayer),
             };
         case 'fill':
             return {
                 ...baseStyle,
                 technique: 'fill',
-                color: getHarpColorBy(mapboxLayer) as string,
             };
         case 'fill-extrusion':
             return {
                 ...baseStyle,
                 technique: 'extruded-polygon',
-                color: getHarpColorBy(mapboxLayer) as string,
             };
     }
 }
 
 function getHarpColorBy(
     mapboxLayer: MapboxVectorTileLayer,
-): string | mapboxgl.StyleFunction | mapboxgl.Expression | undefined {
+): string | object | Expression | null {
     if (mapboxLayer.paint === undefined) {
         return '#000000';
     }
-    const color = (mapboxLayer.paint as any)[`${mapboxLayer.type}-color`];
-    return color !== undefined ? color : '#000000';
-}
-
-function getStyleAttributesBy(mapboxLayer: MapboxVectorTileLayer) {
-    switch (mapboxLayer.type) {
-        case 'line':
-            return {
-                lineWidth: mapboxLayer.paint,
-            };
+    const color:
+        | string
+        | object
+        | Expression
+        | undefined = (mapboxLayer.paint as any)[`${mapboxLayer.type}-color`];
+    if (color === undefined) {
+        if ((mapboxLayer.paint as any)[`${mapboxLayer.type}-pattern`]) {
+            // TODO: sprite-pattern
+            return null;
+        }
+        return '#000000';
+    } else {
+        if (typeof color === 'string') {
+            return color;
+        } else {
+            return translateMapboxExpr(color);
+        }
     }
 }
 
 function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
     if (mapboxLayer.paint === undefined) {
-        return {};
+        return {
+            lineWidth: 1,
+        };
     }
-    /*
-    const lineWidth =
-        mapboxLayer.paint['line-width'] !== undefined
-            ? translateMapboxPaintParam(mapboxLayer.paint['line-width'])
-            : 1;
-    */
-    return {
-        lineWidth: 1,
-    };
+    let attributes = {};
+    if (mapboxLayer.paint['line-width'] !== undefined) {
+        let lineWidth: number | Expression;
+        if (typeof mapboxLayer.paint['line-width'] === 'number') {
+            lineWidth = mapboxLayer.paint['line-width'];
+        } else {
+            //style function
+            //lineWidth = translateMapboxExpr(mapboxLayer.paint['line-width']);
+            lineWidth = 1;
+        }
+        (attributes as any).lineWidth = lineWidth;
+    }
+    return attributes;
 }
 
 function translateMapboxExpr(
@@ -131,8 +146,7 @@ function translateMapboxExpr(
 ): Expression {
     if (mapboxExpression === undefined) {
         return [];
-    }
-    if (Array.isArray(mapboxExpression)) {
+    } else if (Array.isArray(mapboxExpression)) {
         return mapboxExpression.map(
             (ops: number | string | object | Expression, index) => {
                 if (typeof ops === 'number') {
@@ -141,7 +155,9 @@ function translateMapboxExpr(
                 if (typeof ops !== 'string') {
                     return translateMapboxExpr(ops);
                 }
-
+                if (ops === '$type') {
+                    return ['geometry-type'];
+                }
                 if (!ExpressionNames.includes(ops)) {
                     if (
                         ExpressionNames.includes(
@@ -153,12 +169,12 @@ function translateMapboxExpr(
                         return ops;
                     }
                 }
-                if (ops === '$type') {
-                    return ['geometry-type'];
-                }
                 return ops;
             },
         );
+    } else {
+        // object
+        // define translate style function
+        return [];
     }
-    return [];
 }

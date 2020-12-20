@@ -94,7 +94,6 @@ const ExpressionNames = [
     'type',
     'default',
     'colorSpace',
-    '$type',
     '$id',
 ];
 
