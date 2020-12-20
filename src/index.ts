@@ -4,8 +4,10 @@ import {
     Style,
     StyleAttributes,
     Technique,
+    Expr,
 } from '@here/harp-datasource-protocol';
 
+import { ExpressionNames } from './defnitions';
 import { gsiStyle } from './fixture';
 
 interface MapboxVectorTileLayer extends mapboxgl.Layer {
@@ -13,6 +15,8 @@ interface MapboxVectorTileLayer extends mapboxgl.Layer {
     'source-layer': string;
     type: 'symbol' | 'circle' | 'line' | 'fill' | 'fill-extrusion';
 }
+
+type Expression = Array<number | string | Array<any>>;
 
 const fixture = gsiStyle as mapboxgl.Style;
 
@@ -37,9 +41,6 @@ function mapbox2harp(
         if (vectorTileSources.includes((layer as any).source)) {
             return;
         }
-        if (layer.type === 'symbol') {
-            return;
-        }
         styles.push(mbLayer2harpStyle(layer as MapboxVectorTileLayer));
     });
 
@@ -51,45 +52,43 @@ function mapbox2harp(
 }
 
 function mbLayer2harpStyle(mapboxLayer: MapboxVectorTileLayer): Style {
-    const style: Style = {
+    const baseStyle = {
         id: mapboxLayer.id,
-        technique: getHarpTechniqueNameBy(mapboxLayer),
-        color: getHarpColorBy(mapboxLayer) as string,
         layer: mapboxLayer['source-layer'],
+        when: translateMapboxExpr(mapboxLayer.filter),
     };
-    return style;
-}
-
-function getHarpTechniqueNameBy(
-    mapboxLayer: MapboxVectorTileLayer,
-):
-    | 'squares'
-    | 'circles'
-    | 'labeled-icon'
-    | 'line-marker'
-    | 'line'
-    | 'segments'
-    | 'solid-line'
-    | 'dashed-line'
-    | 'label-rejection-line'
-    | 'fill'
-    | 'standard'
-    | 'extruded-line'
-    | 'extruded-polygon'
-    | 'text'
-    | 'shader'
-    | 'terrain' {
     switch (mapboxLayer.type) {
         case 'symbol':
-            return 'circles';
+            return {
+                ...baseStyle,
+                technique: 'circles',
+                color: getHarpColorBy(mapboxLayer) as string,
+            };
         case 'circle':
-            return 'circles';
+            return {
+                ...baseStyle,
+                technique: 'circles',
+                color: getHarpColorBy(mapboxLayer) as string,
+            };
         case 'line':
-            return 'line';
+            return {
+                ...baseStyle,
+                technique: 'solid-line',
+                color: getHarpColorBy(mapboxLayer) as string,
+                ...getLineStyleAttributes(mapboxLayer as mapboxgl.LineLayer),
+            };
         case 'fill':
-            return 'fill';
+            return {
+                ...baseStyle,
+                technique: 'fill',
+                color: getHarpColorBy(mapboxLayer) as string,
+            };
         case 'fill-extrusion':
-            return 'extruded-polygon';
+            return {
+                ...baseStyle,
+                technique: 'extruded-polygon',
+                color: getHarpColorBy(mapboxLayer) as string,
+            };
     }
 }
 
@@ -101,3 +100,65 @@ function getHarpColorBy(
     }
     const color = (mapboxLayer.paint as any)[`${mapboxLayer.type}-color`];
     return color !== undefined ? color : '#000000';
+}
+
+function getStyleAttributesBy(mapboxLayer: MapboxVectorTileLayer) {
+    switch (mapboxLayer.type) {
+        case 'line':
+            return {
+                lineWidth: mapboxLayer.paint,
+            };
+    }
+}
+
+function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
+    if (mapboxLayer.paint === undefined) {
+        return {};
+    }
+    /*
+    const lineWidth =
+        mapboxLayer.paint['line-width'] !== undefined
+            ? translateMapboxPaintParam(mapboxLayer.paint['line-width'])
+            : 1;
+    */
+    return {
+        lineWidth: 1,
+    };
+}
+
+function translateMapboxExpr(
+    mapboxExpression: object | Expression | undefined,
+): Expression {
+    if (mapboxExpression === undefined) {
+        return [];
+    }
+    if (Array.isArray(mapboxExpression)) {
+        return mapboxExpression.map(
+            (ops: number | string | object | Expression, index) => {
+                if (typeof ops === 'number') {
+                    return ops;
+                }
+                if (typeof ops !== 'string') {
+                    return translateMapboxExpr(ops);
+                }
+
+                if (!ExpressionNames.includes(ops)) {
+                    if (
+                        ExpressionNames.includes(
+                            String(mapboxExpression[index - 1]),
+                        )
+                    ) {
+                        return ['get', ops];
+                    } else {
+                        return ops;
+                    }
+                }
+                if (ops === '$type') {
+                    return ['geometry-type'];
+                }
+                return ops;
+            },
+        );
+    }
+    return [];
+}

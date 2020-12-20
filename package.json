@@ -22,7 +22,9 @@
         "url": "https://github.com/Kanahiro/ts-template/issues"
     },
     "homepage": "https://github.com/Kanahiro/ts-template#readme",
-    "dependencies": {},
+    "dependencies": {
+        "three": "^0.123.0"
+    },
     "devDependencies": {
         "@here/harp-datasource-protocol": "^0.21.1",
         "@types/mapbox-gl": "^2.0.0",
