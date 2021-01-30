@@ -173,22 +173,39 @@ function translateMapboxExpr(
 ): Expression {
     if (mapboxExpression === undefined) return [];
     if (Array.isArray(mapboxExpression)) {
-        return mapboxExpression.map(
-            (ops: number | string | Expression, index) => {
-                if (typeof ops === 'number') return ops;
-                if (typeof ops !== 'string') return translateMapboxExpr(ops);
-                if (ops === '$type') return ['geometry-type'];
-                if (ExpressionNames.includes(ops)) return ops;
-                if (
-                    ExpressionNames.includes(
-                        String(mapboxExpression[index - 1]),
-                    )
-                ) {
-                    return ['get', ops];
-                }
-                return ops;
-            },
-        );
+        let expression: Expression = [];
+
+        for (let i = 0; i < mapboxExpression.length; i++) {
+            const ops: number | string | Expression = mapboxExpression[i];
+            if (typeof ops === 'number') {
+                expression.push(ops);
+                continue;
+            }
+            if (typeof ops !== 'string') {
+                expression.push(translateMapboxExpr(ops));
+                continue;
+            }
+            if (ops === '$type') {
+                expression.push(['geometry-type']);
+                continue;
+            }
+            if (ExpressionNames.includes(ops)) {
+                expression.push(ops);
+                continue;
+            }
+            if (ExpressionNames.includes(String(mapboxExpression[i - 1]))) {
+                expression.push(['get', ops]);
+                continue;
+            }
+
+            if (mapboxExpression[0] === 'in' || mapboxExpression[0] === '!in') {
+                expression.push(['literal', mapboxExpression.slice(i)]);
+                break;
+            }
+            // string value
+            expression.push(ops);
+        }
+        return expression;
     } else {
         /**
          * when style function, like following
