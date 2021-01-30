@@ -8,7 +8,6 @@ import {
 } from '@here/harp-datasource-protocol';
 
 import { ExpressionNames } from './defnitions';
-import { gsiStyle } from './fixture';
 
 interface MapboxVectorTileLayer extends mapboxgl.Layer {
     source: string;
@@ -18,48 +17,39 @@ interface MapboxVectorTileLayer extends mapboxgl.Layer {
 
 type Expression = Array<number | string | Array<any>>;
 
-const fixture = gsiStyle as mapboxgl.Style;
-
-console.log(JSON.stringify(mapbox2harp(fixture, 'test')));
-
-function mapbox2harp(
+export default function mapbox2harp(
     mapboxStyle: mapboxgl.Style,
     styleName: string,
-): Theme | null {
+): Theme {
     if (mapboxStyle.sources === undefined || mapboxStyle.layers === undefined) {
-        return null;
+        throw Error('empty has no source or no layer.');
     }
-
-    const vectorTileSources = Object.keys(mapboxStyle.sources).filter(
-        (sourceId) => {
-            mapboxStyle.sources![sourceId].type === 'vector';
-        },
+    const vectorSourceIds = Object.keys(mapboxStyle.sources).filter(
+        (sourceId) => mapboxStyle.sources![sourceId].type === 'vector',
     );
 
-    let styles: Array<Style> = [];
-    mapboxStyle.layers.forEach((layer) => {
-        if (vectorTileSources.includes((layer as any).source)) {
-            return;
-        }
-        const style = mbLayer2harpStyle(layer as MapboxVectorTileLayer);
-        if (style !== null) {
-            styles.push(style);
-        }
-    });
+    const styles: Array<Style> = (mapboxStyle.layers as MapboxVectorTileLayer[])
+        .filter((layer) => vectorSourceIds.includes(layer.source))
+        .map((layer) => mbLayer2harpStyle(layer))
+        .filter((style) => Boolean(style)) as Array<Style>;
 
     const harpStyle: Theme = {
-        styles: {},
+        styles: {
+            [styleName]: styles,
+        },
     };
-    harpStyle.styles![styleName] = styles;
+
     return harpStyle;
 }
 
 function mbLayer2harpStyle(mapboxLayer: MapboxVectorTileLayer): Style | null {
-    const baseStyle = {
+    const baseStyle: Style = {
         id: mapboxLayer.id,
+        technique: 'circles',
         layer: mapboxLayer['source-layer'],
         when: translateMapboxExpr(mapboxLayer.filter),
         color: getHarpColorBy(mapboxLayer) as string,
+        opacity: getHarpOpacityBy(mapboxLayer) as number,
     };
     if (baseStyle.color === null) {
         return null;
@@ -78,7 +68,8 @@ function mbLayer2harpStyle(mapboxLayer: MapboxVectorTileLayer): Style | null {
         case 'line':
             return {
                 ...baseStyle,
-                technique: 'solid-line',
+                metricUnit: 'Pixel', // deprecated
+                technique: getLineTechnique(mapboxLayer as mapboxgl.LineLayer),
                 ...getLineStyleAttributes(mapboxLayer as mapboxgl.LineLayer),
             };
         case 'fill':
@@ -120,6 +111,31 @@ function getHarpColorBy(
     }
 }
 
+function getHarpOpacityBy(
+    mapboxLayer: MapboxVectorTileLayer,
+): number | object | Expression {
+    if (mapboxLayer.paint === undefined) {
+        return 1.0;
+    }
+    const opacity:
+        | number
+        | object
+        | Expression
+        | undefined = (mapboxLayer.paint as any)[`${mapboxLayer.type}-opacity`];
+    if (opacity === undefined) return 1.0;
+    if (typeof opacity === 'number') {
+        return opacity;
+    } else {
+        return translateMapboxExpr(opacity);
+    }
+}
+
+function getLineTechnique(
+    mapboxLayer: mapboxgl.LineLayer,
+): 'solid-line' | 'dashed-line' {
+    return 'solid-line';
+}
+
 function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
     if (mapboxLayer.paint === undefined) {
         return {
@@ -133,8 +149,7 @@ function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
             lineWidth = mapboxLayer.paint['line-width'];
         } else {
             //style function
-            //lineWidth = translateMapboxExpr(mapboxLayer.paint['line-width']);
-            lineWidth = 1;
+            lineWidth = translateMapboxExpr(mapboxLayer.paint['line-width']);
         }
         (attributes as any).lineWidth = lineWidth;
     }
@@ -142,39 +157,56 @@ function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
 }
 
 function translateMapboxExpr(
-    mapboxExpression: object | Expression | undefined,
+    mapboxExpression: { [key: string]: any } | Expression | undefined,
 ): Expression {
-    if (mapboxExpression === undefined) {
-        return [];
-    } else if (Array.isArray(mapboxExpression)) {
+    if (mapboxExpression === undefined) return [];
+    if (Array.isArray(mapboxExpression)) {
         return mapboxExpression.map(
-            (ops: number | string | object | Expression, index) => {
-                if (typeof ops === 'number') {
-                    return ops;
-                }
-                if (typeof ops !== 'string') {
-                    return translateMapboxExpr(ops);
-                }
-                if (ops === '$type') {
-                    return ['geometry-type'];
-                }
-                if (!ExpressionNames.includes(ops)) {
-                    if (
-                        ExpressionNames.includes(
-                            String(mapboxExpression[index - 1]),
-                        )
-                    ) {
-                        return ['get', ops];
-                    } else {
-                        return ops;
-                    }
+            (ops: number | string | Expression, index) => {
+                if (typeof ops === 'number') return ops;
+                if (typeof ops !== 'string') return translateMapboxExpr(ops);
+                if (ops === '$type') return ['geometry-type'];
+                if (ExpressionNames.includes(ops)) return ops;
+                if (
+                    ExpressionNames.includes(
+                        String(mapboxExpression[index - 1]),
+                    )
+                ) {
+                    return ['get', ops];
                 }
                 return ops;
             },
         );
     } else {
-        // object
-        // define translate style function
-        return [];
+        /**
+         * when style function, like following
+         * {
+                base: 1.2, // can be undefined
+                stops: [
+                    [12, 0.5],
+                    [13, 1],
+                    [14, 4],
+                    [20, 15],
+                ],
+            }
+         */
+        const isStyleFunctionInvalid =
+            mapboxExpression['stops'] === undefined &&
+            mapboxExpression['base'] === undefined;
+
+        if (isStyleFunctionInvalid) return [];
+
+        return [
+            'interpolate',
+            ['exponential', mapboxExpression['base'] || 1.0],
+            ['zoom'],
+            ...mapboxExpression['stops'].reduce(
+                (pre: any[], current: any[]) => {
+                    pre.push(...current);
+                    return pre;
+                },
+                [],
+            ),
+        ];
     }
 }
