@@ -1,0 +1,39 @@
+{
+    "name": "harp.gl-vue-example",
+    "version": "0.1.0",
+    "repository": {},
+    "scripts": {
+        "serve": "vue-cli-service serve",
+        "build": "vue-cli-service build",
+        "lint": "vue-cli-service lint",
+        "build:harp-gl-decoder": "webpack --config ./harp-gl-decoder.config.js"
+    },
+    "dependencies": {
+        "@here/harp-datasource-protocol": "^0.21.1",
+        "@here/harp-geoutils": "^0.21.0",
+        "@here/harp-map-controls": "^0.21.1",
+        "@here/harp-map-theme": "^0.21.1",
+        "@here/harp-mapview": "^0.21.1",
+        "@here/harp-omv-datasource": "0.21.0",
+        "@here/harp-webpack-utils": "^0.21.0",
+        "@types/mapbox-gl": "^1.13.0",
+        "core-js": "^3.6.5",
+        "mapbox-gl": "^1.13.0",
+        "three": "0.120.1",
+        "vue": "^3.0.0"
+    },
+    "devDependencies": {
+        "@typescript-eslint/eslint-plugin": "^2.33.0",
+        "@typescript-eslint/parser": "^2.33.0",
+        "@vue/cli-plugin-babel": "~4.5.0",
+        "@vue/cli-plugin-eslint": "~4.5.0",
+        "@vue/cli-plugin-typescript": "~4.5.0",
+        "@vue/cli-service": "~4.5.0",
+        "@vue/compiler-sfc": "^3.0.0",
+        "@vue/eslint-config-typescript": "^5.0.2",
+        "eslint": "^6.7.2",
+        "eslint-plugin-vue": "^7.0.0-0",
+        "typescript": "~3.9.3",
+        "webpack-cli": "^4.2.0"
+    }
+}

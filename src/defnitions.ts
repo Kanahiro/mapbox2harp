@@ -25,6 +25,7 @@ const ExpressionNames = [
     'get',
     'has',
     'in',
+    '!in',
     'index-of',
     'length',
     'slice',

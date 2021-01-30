@@ -9,6 +9,8 @@ import {
 
 import { ExpressionNames } from './defnitions';
 
+const PX_TO_METER_MULTIPLIER = 4;
+
 interface MapboxVectorTileLayer extends mapboxgl.Layer {
     source: string;
     'source-layer': string;
@@ -21,9 +23,9 @@ export default function mapbox2harp(
     mapboxStyle: mapboxgl.Style,
     styleName: string,
 ): Theme {
-    if (mapboxStyle.sources === undefined || mapboxStyle.layers === undefined) {
+    if (mapboxStyle.sources === undefined || mapboxStyle.layers === undefined)
         throw Error('empty has no source or no layer.');
-    }
+
     const vectorSourceIds = Object.keys(mapboxStyle.sources).filter(
         (sourceId) => mapboxStyle.sources![sourceId].type === 'vector',
     );
@@ -133,7 +135,9 @@ function getHarpOpacityBy(
 function getLineTechnique(
     mapboxLayer: mapboxgl.LineLayer,
 ): 'solid-line' | 'dashed-line' {
-    return 'solid-line';
+    if (mapboxLayer.paint?.['line-dasharray'] === undefined)
+        return 'solid-line';
+    return 'dashed-line';
 }
 
 function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
@@ -142,7 +146,7 @@ function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
             lineWidth: 1,
         };
     }
-    let attributes = {};
+    const attributes = {};
     if (mapboxLayer.paint['line-width'] !== undefined) {
         let lineWidth: number | Expression;
         if (typeof mapboxLayer.paint['line-width'] === 'number') {
@@ -152,6 +156,14 @@ function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
             lineWidth = translateMapboxExpr(mapboxLayer.paint['line-width']);
         }
         (attributes as any).lineWidth = lineWidth;
+    }
+    if (mapboxLayer.paint['line-dasharray'] !== undefined) {
+        (attributes as any)['dashSize'] =
+            Number(mapboxLayer.paint['line-dasharray'][0]) *
+            PX_TO_METER_MULTIPLIER;
+        (attributes as any)['gapSize'] =
+            Number(mapboxLayer.paint['line-dasharray'][1]) *
+            PX_TO_METER_MULTIPLIER;
     }
     return attributes;
 }
