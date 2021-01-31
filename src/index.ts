@@ -9,12 +9,19 @@ import {
 
 import { ExpressionNames } from './defnitions';
 
-const PX_TO_METER_MULTIPLIER = 4;
+const PX_TO_METER_MULTIPLIER = 3;
+
+type MapboxVectorLayerType =
+    | 'symbol'
+    | 'circle'
+    | 'line'
+    | 'fill'
+    | 'fill-extrusion';
 
 interface MapboxVectorTileLayer extends mapboxgl.Layer {
     source: string;
     'source-layer': string;
-    type: 'symbol' | 'circle' | 'line' | 'fill' | 'fill-extrusion';
+    type: MapboxVectorLayerType;
 }
 
 type Expression = Array<number | string | Array<any>>;
@@ -22,7 +29,7 @@ type Expression = Array<number | string | Array<any>>;
 export default function mapbox2harp(
     mapboxStyle: mapboxgl.Style,
     styleName: string,
-): Theme {
+): { [key: string]: Style[] } {
     if (mapboxStyle.sources === undefined || mapboxStyle.layers === undefined)
         throw Error('empty has no source or no layer.');
 
@@ -35,21 +42,17 @@ export default function mapbox2harp(
         .map((layer) => mbLayer2harpStyle(layer))
         .filter((style) => Boolean(style)) as Array<Style>;
 
-    const harpStyle: Theme = {
-        styles: {
-            [styleName]: styles,
-        },
+    return {
+        [styleName]: styles,
     };
-
-    return harpStyle;
 }
 
 function mbLayer2harpStyle(mapboxLayer: MapboxVectorTileLayer): Style | null {
-    const baseStyle: Style = {
+    const baseStyle = {
         id: mapboxLayer.id,
         technique: 'circles',
         layer: mapboxLayer['source-layer'],
-        when: translateMapboxExpr(mapboxLayer.filter),
+        when: mapboxLayer.filter ? translateExpr(mapboxLayer.filter) : [],
         color: getHarpColorBy(mapboxLayer) as string,
         opacity: getHarpOpacityBy(mapboxLayer) as number,
     };
@@ -60,7 +63,8 @@ function mbLayer2harpStyle(mapboxLayer: MapboxVectorTileLayer): Style | null {
         case 'symbol':
             return {
                 ...baseStyle,
-                technique: 'circles',
+                technique: 'text',
+                ...getTextStyleAttributes(mapboxLayer as mapboxgl.SymbolLayer),
             };
         case 'circle':
             return {
@@ -87,6 +91,51 @@ function mbLayer2harpStyle(mapboxLayer: MapboxVectorTileLayer): Style | null {
     }
 }
 
+function getTextStyleAttributes(mapboxLayer: mapboxgl.SymbolLayer): Object {
+    const textField = mapboxLayer.layout?.['text-field'];
+    let textExpr: string | Expression | null = null;
+    if (textField === undefined) return {};
+    if (typeof textField === 'string') {
+        const propLiteralMatches = textField.match(/{.+}/);
+        if (!propLiteralMatches) textExpr = textField;
+        const nonPropTextArr = textField.split(/{.+}/);
+        if (nonPropTextArr[0] === '' && nonPropTextArr[1] === '') {
+            textExpr = ['get', textField];
+        } else {
+            let seperated: string[] = [];
+            nonPropTextArr
+                .filter((text) => text !== '')
+                .forEach((text) => {
+                    const units = textField.split(text);
+                    if (seperated.length === 0) seperated = [units[0]];
+                    seperated.push(text);
+                    if (units[1] !== '') seperated.push(units[1]);
+                });
+            const expr = seperated.map((unit: string) => {
+                if (unit.match(/{.+}/))
+                    return ['get', unit.replace('{', '').replace('}', '')];
+                return unit;
+            });
+            textExpr = ['concat', ...expr];
+        }
+    }
+    return {
+        text: textExpr,
+        color: mapboxLayer.paint?.['text-color']
+            ? translateExpr(mapboxLayer.paint?.['text-color'] as any)
+            : '#000000',
+        size: mapboxLayer.layout?.['text-size']
+            ? translateExpr(mapboxLayer.layout?.['text-size'] as any)
+            : 16,
+        backgroundColor: mapboxLayer.paint?.['text-halo-color']
+            ? (mapboxLayer.paint?.['text-halo-color'] as any)
+            : undefined,
+        backgroundOpacity: mapboxLayer.paint?.['text-halo-color']
+            ? 1.0
+            : undefined,
+    };
+}
+
 function getHarpColorBy(
     mapboxLayer: MapboxVectorTileLayer,
 ): string | object | Expression | null {
@@ -108,7 +157,7 @@ function getHarpColorBy(
         if (typeof color === 'string') {
             return color;
         } else {
-            return translateMapboxExpr(color);
+            return translateExpr(color);
         }
     }
 }
@@ -128,7 +177,7 @@ function getHarpOpacityBy(
     if (typeof opacity === 'number') {
         return opacity;
     } else {
-        return translateMapboxExpr(opacity);
+        return translateExpr(opacity);
     }
 }
 
@@ -141,23 +190,20 @@ function getLineTechnique(
 }
 
 function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
-    if (mapboxLayer.paint === undefined) {
-        return {
-            lineWidth: 1,
-        };
-    }
-    const attributes = {};
-    if (mapboxLayer.paint['line-width'] !== undefined) {
-        let lineWidth: number | Expression;
+    const attributes = {
+        lineWidth: 1,
+    };
+    if (mapboxLayer.paint?.['line-width'] !== undefined) {
         if (typeof mapboxLayer.paint['line-width'] === 'number') {
-            lineWidth = mapboxLayer.paint['line-width'];
+            (attributes as any).lineWidth = mapboxLayer.paint['line-width'];
         } else {
             //style function
-            lineWidth = translateMapboxExpr(mapboxLayer.paint['line-width']);
+            (attributes as any).lineWidth = translateExpr(
+                mapboxLayer.paint['line-width'],
+            );
         }
-        (attributes as any).lineWidth = lineWidth;
     }
-    if (mapboxLayer.paint['line-dasharray'] !== undefined) {
+    if (mapboxLayer.paint?.['line-dasharray'] !== undefined) {
         (attributes as any)['dashSize'] =
             Number(mapboxLayer.paint['line-dasharray'][0]) *
             PX_TO_METER_MULTIPLIER;
@@ -168,10 +214,9 @@ function getLineStyleAttributes(mapboxLayer: mapboxgl.LineLayer): Object {
     return attributes;
 }
 
-function translateMapboxExpr(
-    mapboxExpression: { [key: string]: any } | Expression | undefined,
+function translateExpr(
+    mapboxExpression: { [key: string]: any } | Expression,
 ): Expression {
-    if (mapboxExpression === undefined) return [];
     if (Array.isArray(mapboxExpression)) {
         let expression: Expression = [];
 
@@ -182,7 +227,7 @@ function translateMapboxExpr(
                 continue;
             }
             if (typeof ops !== 'string') {
-                expression.push(translateMapboxExpr(ops));
+                expression.push(translateExpr(ops));
                 continue;
             }
             if (ops === '$type') {
@@ -219,15 +264,14 @@ function translateMapboxExpr(
                 ],
             }
          */
-        const isStyleFunctionInvalid =
-            mapboxExpression['stops'] === undefined &&
-            mapboxExpression['base'] === undefined;
 
-        if (isStyleFunctionInvalid) return [];
+        if (mapboxExpression['stops'] === undefined) return [];
 
         return [
             'interpolate',
-            ['exponential', mapboxExpression['base'] || 1.0],
+            mapboxExpression['base']
+                ? ['exponential', mapboxExpression['base']]
+                : ['linear'],
             ['zoom'],
             ...mapboxExpression['stops'].reduce(
                 (pre: any[], current: any[]) => {

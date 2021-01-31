@@ -21,7 +21,33 @@ export default defineComponent({
     name: 'Harp',
     props: {},
     setup(props, context) {
-        const theme = mapbox2harp(mapstyle as mapboxgl.Style, 'osm');
+        const theme = {
+            styles: mapbox2harp(mapstyle as mapboxgl.Style, 'osm'),
+            textStyles: [
+                {
+                    name: 'smallSign',
+                    color: '#000000',
+                    fontCatalogName: 'fira',
+                },
+                {
+                    name: 'smallSignLight',
+                    color: '#FFFFFF',
+                    fontCatalogName: 'fira',
+                },
+                {
+                    name: 'placeMarker',
+                    color: '#60FF60',
+                    fontCatalogName: 'fira',
+                },
+            ],
+            fontCatalogs: [
+                {
+                    name: 'fira',
+                    url:
+                        'https://heremaps.github.io/harp-map-editor/fonts/Default_FontCatalog.json',
+                },
+            ],
+        };
         console.log(theme);
         onMounted(() => {
             const canvas = document.getElementById(
@@ -35,8 +61,8 @@ export default defineComponent({
                 projection: sphereProjection,
                 target: new GeoCoordinates(35.68, 139.77),
                 zoomLevel: 13.3,
-                minZoomLevel: 5,
-                maxZoomLevel: 18,
+                minZoomLevel: 0,
+                maxZoomLevel: 22,
             });
 
             // add controls
