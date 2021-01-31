@@ -26,10 +26,7 @@ interface MapboxVectorTileLayer extends mapboxgl.Layer {
 
 type Expression = Array<number | string | Array<any>>;
 
-export default function mapbox2harp(
-    mapboxStyle: mapboxgl.Style,
-    styleName: string,
-): { [key: string]: Style[] } {
+export default function mapbox2harp(mapboxStyle: mapboxgl.Style): Style[] {
     if (mapboxStyle.sources === undefined || mapboxStyle.layers === undefined)
         throw Error('empty has no source or no layer.');
 
@@ -42,9 +39,7 @@ export default function mapbox2harp(
         .map((layer) => mbLayer2harpStyle(layer))
         .filter((style) => Boolean(style)) as Array<Style>;
 
-    return {
-        [styleName]: styles,
-    };
+    return styles;
 }
 
 function mbLayer2harpStyle(mapboxLayer: MapboxVectorTileLayer): Style | null {

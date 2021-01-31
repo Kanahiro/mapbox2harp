@@ -22,7 +22,9 @@ export default defineComponent({
     props: {},
     setup(props, context) {
         const theme = {
-            styles: mapbox2harp(mapstyle as mapboxgl.Style, 'osm'),
+            styles: {
+                osm: mapbox2harp(mapstyle as mapboxgl.Style),
+            },
             textStyles: [
                 {
                     name: 'smallSign',
