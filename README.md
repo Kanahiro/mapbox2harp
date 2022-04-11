@@ -1,6 +1,6 @@
 # mapbox2harp
 
-This project is EXPERIMENTAL and under developing.
+This project is UNMAINTAINED because [harpgl have been stopped maintaining](https://github.com/heremaps/harp.gl).
 
 ## Concept
 
